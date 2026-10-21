@@ -698,7 +698,11 @@ async def _synthesize_chunks(
         if len(chunks) == 1:
             return (await _synthesize_batched(runtime, [sampling_request]))[0]
         chunk_requests = [replace(sampling_request, text=chunk) for chunk in chunks]
-        return _merge_chunk_results(await _synthesize_batched(runtime, chunk_requests))
+        results = await _synthesize_batched(runtime, chunk_requests)
+        for index, (chunk, result) in enumerate(zip(chunks, results, strict=True), start=1):
+            _log_chunk_started(index, len(chunks), chunk)
+            _log_chunk_completed(index, len(chunks), result)
+        return _merge_chunk_results(results)
 
     if len(chunks) == 1:
         return await _run_blocking(
@@ -709,21 +713,29 @@ async def _synthesize_chunks(
 
     results: list[SamplingResult] = []
     for index, chunk in enumerate(chunks, start=1):
-        logger.info("speech chunk %d/%d started: chars=%d", index, len(chunks), len(chunk))
+        _log_chunk_started(index, len(chunks), chunk)
         chunk_request = replace(sampling_request, text=chunk)
         chunk_result = await _run_blocking(
             _synthesize_once,
             runtime,
             chunk_request,
         )
-        logger.info(
-            "speech chunk %d/%d completed: audio_seconds=%.2f",
-            index,
-            len(chunks),
-            _audio_duration_seconds(chunk_result.audio, chunk_result.sample_rate),
-        )
+        _log_chunk_completed(index, len(chunks), chunk_result)
         results.append(chunk_result)
     return _merge_chunk_results(results)
+
+
+def _log_chunk_started(index: int, total: int, chunk: str) -> None:
+    logger.info("speech chunk %d/%d started: chars=%d", index, total, len(chunk))
+
+
+def _log_chunk_completed(index: int, total: int, result: SamplingResult) -> None:
+    logger.info(
+        "speech chunk %d/%d completed: audio_seconds=%.2f",
+        index,
+        total,
+        _audio_duration_seconds(result.audio, result.sample_rate),
+    )
 
 
 def _merge_chunk_results(results: list[SamplingResult]) -> SamplingResult:
