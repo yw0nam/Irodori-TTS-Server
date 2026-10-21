@@ -210,3 +210,15 @@ def test_submit_all_fails_with_the_chunk_error_and_drops_abandoned_chunks():
 
     assert run(main()) == []
     assert run_batch.batches == [["bad", "b", "c"], ["bad"], ["b"], ["after"]]
+
+
+def test_submit_all_applies_the_queue_timeout_only_until_the_first_chunk_starts():
+    # Three batches of 0.05s each: the last one starts after the 0.08s queue timeout.
+    run_batch = FakeRunBatch(delay=0.05)
+    batcher = make_batcher(run_batch, max_batch_size=2, queue_timeout=0.08)
+    texts = ["a", "b", "c", "d", "e", "f"]
+
+    results = run(batcher.submit_all(RUNTIME, [SamplingRequest(text=text) for text in texts]))
+
+    assert results == [f"result:{text}" for text in texts]
+    assert run_batch.batches == [["a", "b"], ["c", "d"], ["e", "f"]]
