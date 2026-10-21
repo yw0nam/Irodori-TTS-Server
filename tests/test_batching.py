@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+from fastapi import HTTPException
+
 from irodori_openai_tts.batching import SynthesisBatcher
 from irodori_tts.inference_runtime import SamplingRequest
 
@@ -21,6 +24,19 @@ class FakeRunBatch:
         self.batches.append([request.text for request in requests])
         if any(request.text == "bad" for request in requests):
             raise BadRequestError("bad request")
+        return [f"result:{request.text}" for request in requests]
+
+
+class BlockingRunBatch(FakeRunBatch):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, runtime, requests):
+        self.batches.append([request.text for request in requests])
+        self.started.set()
+        await self.release.wait()
         return [f"result:{request.text}" for request in requests]
 
 
@@ -117,3 +133,59 @@ def test_failed_batch_reruns_each_request_alone():
     assert results[0] == "result:a"
     assert isinstance(results[1], BadRequestError)
     assert results[2] == "result:c"
+
+
+def test_queue_timeout_returns_503_and_never_runs_the_request():
+    run_batch = BlockingRunBatch()
+    batcher = make_batcher(run_batch, wait_seconds=0, queue_timeout=0.1)
+
+    async def main():
+        first = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="a")))
+        await run_batch.started.wait()
+        with pytest.raises(HTTPException) as exc_info:
+            await batcher.submit(RUNTIME, SamplingRequest(text="b"))
+        run_batch.release.set()
+        await first
+        return exc_info.value
+
+    exc = run(main())
+
+    assert exc.status_code == 503
+    assert exc.detail == "Synthesis queue is full. Retry after a moment. timeout=0.1s"
+    assert run_batch.batches == [["a"]]
+
+
+def test_cancel_before_start_never_runs_the_request():
+    run_batch = BlockingRunBatch()
+    batcher = make_batcher(run_batch, wait_seconds=0)
+
+    async def main():
+        first = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="a")))
+        await run_batch.started.wait()
+        second = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="b")))
+        await asyncio.sleep(0)
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await second
+        run_batch.release.set()
+        await first
+
+    run(main())
+
+    assert run_batch.batches == [["a"]]
+
+
+def test_cancel_after_start_keeps_the_rest_of_the_batch():
+    run_batch = BlockingRunBatch()
+    batcher = make_batcher(run_batch)
+
+    async def main():
+        first = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="a")))
+        second = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="b")))
+        await run_batch.started.wait()
+        first.cancel()
+        run_batch.release.set()
+        return await second
+
+    assert run(main()) == "result:b"
+    assert run_batch.batches == [["a", "b"]]
