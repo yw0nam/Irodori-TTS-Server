@@ -575,6 +575,7 @@ def _get_synthesis_batcher() -> SynthesisBatcher:
         int(settings.max_batch_size),
         float(settings.batch_wait_ms),
         float(settings.synthesis_wait_timeout),
+        asyncio.get_running_loop(),
     )
     if _synthesis_batcher is None or _synthesis_batcher_config != config:
         _synthesis_batcher = SynthesisBatcher(
