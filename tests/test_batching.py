@@ -16,12 +16,14 @@ class BadRequestError(Exception):
 
 
 class FakeRunBatch:
-    def __init__(self) -> None:
+    def __init__(self, delay: float = 0.0) -> None:
+        self.delay = delay
         self.batches: list[list[str]] = []
 
     async def __call__(self, runtime, requests):
         assert runtime is RUNTIME
         self.batches.append([request.text for request in requests])
+        await asyncio.sleep(self.delay)
         if any(request.text == "bad" for request in requests):
             raise BadRequestError("bad request")
         return [f"result:{request.text}" for request in requests]
@@ -189,3 +191,19 @@ def test_cancel_after_start_keeps_the_rest_of_the_batch():
 
     assert run(main()) == "result:b"
     assert run_batch.batches == [["a", "b"]]
+
+
+def test_submit_all_fails_with_the_chunk_error_and_drops_queued_chunks():
+    # The delay keeps the worker busy rerunning "b" while the failure cancels "c".
+    run_batch = FakeRunBatch(delay=0.05)
+    batcher = make_batcher(run_batch, max_batch_size=2)
+
+    async def main():
+        with pytest.raises(BadRequestError):
+            await batcher.submit_all(
+                RUNTIME, [SamplingRequest(text=text) for text in ("bad", "b", "c")]
+            )
+        return list(batcher._pending)
+
+    assert run(main()) == []
+    assert run_batch.batches == [["bad", "b"], ["bad"], ["b"]]
