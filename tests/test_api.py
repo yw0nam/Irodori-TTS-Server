@@ -876,6 +876,7 @@ def test_speech_chunking_splits_only_after_min_chars(monkeypatch):
     assert len(runtime.texts) == 2
     assert runtime.texts[0].endswith("。")
     assert runtime.texts[1] == "最後です。"
+    assert runtime.batch_sizes == []
 
 
 def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch, caplog):
@@ -1040,6 +1041,61 @@ def test_speech_stream_format_sse_emits_each_chunk(monkeypatch):
     assert events[0][1]["index"] == 0
     assert events[1][1]["index"] == 1
     assert events[2][1] == {"chunks": 2}
+
+
+def test_speech_stream_format_sse_in_batch_mode_emits_each_chunk(monkeypatch):
+    runtime = FakeRuntime()
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+
+    response = TestClient(main.app).post(
+        "/v1/audio/speech",
+        json={
+            "model": "irodori-tts",
+            "input": "一つ目です。二つ目の文です。",
+            "voice": "none",
+            "stream_format": "sse",
+            "irodori": {"chunking_enabled": True, "chunk_min_chars": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    events = sse_events(response.text)
+    assert [event for event, _data in events] == ["audio_chunk", "audio_chunk", "done"]
+    assert [data["text"] for _event, data in events[:2]] == ["一つ目です。", "二つ目の文です。"]
+    assert events[2][1] == {"chunks": 2}
+    assert runtime.batch_sizes == [1, 1]
+
+
+def test_speech_stream_format_sse_in_batch_mode_returns_runtime_error_event(monkeypatch):
+    runtime = FakeRuntime(exc=RuntimeError("boom"))
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+
+    response = TestClient(main.app).post(
+        "/v1/audio/speech",
+        json={
+            "model": "irodori-tts",
+            "input": "こんにちは。",
+            "voice": "none",
+            "stream_format": "sse",
+        },
+    )
+
+    assert response.status_code == 200
+    assert sse_events(response.text) == [
+        (
+            "error",
+            {
+                "error": {
+                    "message": "boom",
+                    "type": "server_error",
+                    "param": None,
+                    "code": "stream_error",
+                }
+            },
+        )
+    ]
 
 
 def test_speech_chunking_skips_when_seconds_is_explicit(monkeypatch):
