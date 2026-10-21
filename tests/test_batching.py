@@ -193,17 +193,20 @@ def test_cancel_after_start_keeps_the_rest_of_the_batch():
     assert run_batch.batches == [["a", "b"]]
 
 
-def test_submit_all_fails_with_the_chunk_error_and_drops_queued_chunks():
-    # The delay keeps the worker busy rerunning "b" while the failure cancels "c".
+def test_submit_all_fails_with_the_chunk_error_and_drops_abandoned_chunks():
+    # The delay keeps the worker busy rerunning "b" while the failure cancels "c" and "d".
     run_batch = FakeRunBatch(delay=0.05)
-    batcher = make_batcher(run_batch, max_batch_size=2)
+    batcher = make_batcher(run_batch, max_batch_size=3)
 
     async def main():
         with pytest.raises(BadRequestError):
             await batcher.submit_all(
-                RUNTIME, [SamplingRequest(text=text) for text in ("bad", "b", "c")]
+                RUNTIME, [SamplingRequest(text=text) for text in ("bad", "b", "c", "d")]
             )
-        return list(batcher._pending)
+        pending = list(batcher._pending)
+        # Runs only after the worker has finished the reruns above.
+        await batcher.submit(RUNTIME, SamplingRequest(text="after"))
+        return pending
 
     assert run(main()) == []
-    assert run_batch.batches == [["bad", "b"], ["bad"], ["b"]]
+    assert run_batch.batches == [["bad", "b", "c"], ["bad"], ["b"], ["after"]]
