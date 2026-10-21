@@ -678,6 +678,21 @@ def test_speech_returns_503_when_batch_queue_times_out(monkeypatch):
     assert runtime.texts == []
 
 
+def test_speech_batch_mode_serves_requests_on_separate_event_loops(monkeypatch):
+    runtime = FakeRuntime()
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+    monkeypatch.setattr(main.settings, "synthesis_wait_timeout", 1.0)
+    client = TestClient(main.app)
+    body = {"model": "irodori-tts", "input": "こんにちは。", "voice": "none"}
+
+    # Without a context manager, TestClient runs each request on a new event loop.
+    first = client.post("/v1/audio/speech", json=body)
+    second = client.post("/v1/audio/speech", json=body)
+
+    assert (first.status_code, second.status_code) == (200, 200)
+
+
 def test_speech_stream_format_sse_returns_queue_timeout_as_error_event(monkeypatch):
     runtime = FakeRuntime()
     monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
