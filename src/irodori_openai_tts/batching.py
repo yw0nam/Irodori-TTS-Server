@@ -55,11 +55,33 @@ class SynthesisBatcher:
 
     async def _work(self) -> None:
         while self._pending:
-            batch = await self._next_batch()
-            for item in batch:
-                self._pending.remove(item)
+            batch: list[_Item] = []
+            try:
+                batch = await self._next_batch()
+                for item in batch:
+                    self._pending.remove(item)
+                await self._run(batch)
+            except Exception as exc:
+                for item in batch:
+                    if not item.future.done():
+                        item.future.set_exception(exc)
+
+    async def _run(self, batch: list[_Item]) -> None:
+        try:
             results = await self._run_batch(batch[0].runtime, [item.request for item in batch])
-            for item, result in zip(batch, results, strict=True):
+        except Exception:
+            if len(batch) == 1:
+                raise
+            # Each item settles as soon as its own rerun ends, so callers can react early.
+            for item in batch:
+                try:
+                    await self._run([item])
+                except Exception as exc:
+                    if not item.future.done():
+                        item.future.set_exception(exc)
+            return
+        for item, result in zip(batch, results, strict=True):
+            if not item.future.done():
                 item.future.set_result(result)
 
     async def _next_batch(self) -> list[_Item]:
