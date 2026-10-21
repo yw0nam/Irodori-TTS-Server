@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from irodori_openai_tts.batching import SynthesisBatcher
+from irodori_openai_tts.batching import QueueTimeoutError, SynthesisBatcher
 from irodori_tts.inference_runtime import SamplingRequest
 
 RUNTIME = object()
@@ -143,7 +143,7 @@ def test_queue_timeout_raises_and_never_runs_the_request():
     async def main():
         first = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="a")))
         await run_batch.started.wait()
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(QueueTimeoutError):
             await batcher.submit(RUNTIME, SamplingRequest(text="b"))
         run_batch.release.set()
         await first

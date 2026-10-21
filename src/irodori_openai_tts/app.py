@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from irodori_tts.inference_runtime import SamplingRequest, SamplingResult
 
 from .audio import CONTENT_TYPES, encode_audio, normalize_response_format
-from .batching import SynthesisBatcher
+from .batching import QueueTimeoutError, SynthesisBatcher
 from .config import get_settings
 from .runtime import RuntimeLoadTimeoutError, RuntimeManager
 from .voices import VoiceRegistry, VoiceSpec
@@ -593,7 +593,7 @@ async def _synthesize_batched(
 ) -> list[SamplingResult]:
     try:
         return await _get_synthesis_batcher().submit_all(runtime, requests)
-    except asyncio.TimeoutError as exc:
+    except QueueTimeoutError as exc:
         raise _synthesis_queue_full_error() from exc
 
 

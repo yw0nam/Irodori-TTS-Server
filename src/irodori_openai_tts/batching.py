@@ -14,6 +14,10 @@ from irodori_tts.inference_runtime import (
 RunBatch = Callable[[Any, list[SamplingRequest]], Awaitable[list[SamplingResult]]]
 
 
+class QueueTimeoutError(Exception):
+    pass
+
+
 @dataclass(eq=False)
 class _Item:
     runtime: Any
@@ -77,10 +81,10 @@ class SynthesisBatcher:
             self._worker = asyncio.create_task(self._work())
         try:
             await asyncio.wait_for(item.started.wait(), queue_timeout)
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             if item in self._pending:
                 self._pending.remove(item)
-                raise
+                raise QueueTimeoutError from exc
         except asyncio.CancelledError:
             if item in self._pending:
                 self._pending.remove(item)
