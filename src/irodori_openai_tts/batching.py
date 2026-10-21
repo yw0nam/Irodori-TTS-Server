@@ -73,6 +73,18 @@ class SynthesisBatcher:
             raise
         return await item.future
 
+    async def submit_all(
+        self, runtime: Any, requests: list[SamplingRequest]
+    ) -> list[SamplingResult]:
+        tasks = [asyncio.create_task(self.submit(runtime, request)) for request in requests]
+        try:
+            return await asyncio.gather(*tasks)
+        finally:
+            # Queued siblings leave the queue; started ones finish and their results are dropped.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _work(self) -> None:
         while self._pending:
             batch: list[_Item] = []
