@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import threading
 
 import pytest
@@ -877,7 +878,8 @@ def test_speech_chunking_splits_only_after_min_chars(monkeypatch):
     assert runtime.texts[1] == "最後です。"
 
 
-def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch):
+def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger=main.logger.name)
     runtime = FakeRuntime()
     monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
     monkeypatch.setattr(main.settings, "max_batch_size", 4)
@@ -897,6 +899,14 @@ def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch):
     assert runtime.texts == ["一つ目です。", "二つ目の文です。", "三つ目の長い文です。"]
     assert runtime.batch_sizes == [3]
     assert len(response.content) == 2 * (6 + 8 + 10) * 10
+    assert [m for m in caplog.messages if m.startswith("speech chunk ")] == [
+        "speech chunk 1/3 started: chars=6",
+        "speech chunk 1/3 completed: audio_seconds=0.06",
+        "speech chunk 2/3 started: chars=8",
+        "speech chunk 2/3 completed: audio_seconds=0.08",
+        "speech chunk 3/3 started: chars=10",
+        "speech chunk 3/3 completed: audio_seconds=0.10",
+    ]
 
 
 def test_speech_chunking_uses_first_sentence_min_chars_only_for_first_split(monkeypatch):
