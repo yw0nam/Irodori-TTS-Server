@@ -572,16 +572,15 @@ def _get_synthesis_batcher() -> SynthesisBatcher:
     global _synthesis_batcher, _synthesis_batcher_config
 
     config = (
-        asyncio.get_running_loop(),
         int(settings.max_batch_size),
         float(settings.batch_wait_ms),
         float(settings.synthesis_wait_timeout),
     )
     if _synthesis_batcher is None or _synthesis_batcher_config != config:
         _synthesis_batcher = SynthesisBatcher(
-            max_batch_size=config[1],
-            wait_seconds=config[2] / 1000.0,
-            queue_timeout=config[3],
+            max_batch_size=config[0],
+            wait_seconds=config[1] / 1000.0,
+            queue_timeout=config[2],
             run_batch=partial(_run_blocking, _synthesize_batch_once),
         )
         _synthesis_batcher_config = config
