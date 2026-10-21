@@ -659,6 +659,24 @@ def test_speech_returns_503_when_synthesis_queue_times_out(monkeypatch):
     assert runtime.texts == []
 
 
+def test_speech_returns_503_when_batch_queue_times_out(monkeypatch):
+    runtime = FakeRuntime()
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+    monkeypatch.setattr(main.settings, "synthesis_wait_timeout", 0.0)
+
+    response = TestClient(main.app).post(
+        "/v1/audio/speech",
+        json={"model": "irodori-tts", "input": "こんにちは。", "voice": "none"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["message"] == (
+        "Synthesis queue is full. Retry after a moment. timeout=0.0s"
+    )
+    assert runtime.texts == []
+
+
 def test_speech_stream_format_sse_returns_queue_timeout_as_error_event(monkeypatch):
     runtime = FakeRuntime()
     monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))

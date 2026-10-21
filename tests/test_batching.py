@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from fastapi import HTTPException
 
 from irodori_openai_tts.batching import SynthesisBatcher
 from irodori_tts.inference_runtime import SamplingRequest
@@ -137,23 +136,20 @@ def test_failed_batch_reruns_each_request_alone():
     assert results[2] == "result:c"
 
 
-def test_queue_timeout_returns_503_and_never_runs_the_request():
+def test_queue_timeout_raises_and_never_runs_the_request():
     run_batch = BlockingRunBatch()
     batcher = make_batcher(run_batch, wait_seconds=0, queue_timeout=0.1)
 
     async def main():
         first = asyncio.create_task(batcher.submit(RUNTIME, SamplingRequest(text="a")))
         await run_batch.started.wait()
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(asyncio.TimeoutError):
             await batcher.submit(RUNTIME, SamplingRequest(text="b"))
         run_batch.release.set()
         await first
-        return exc_info.value
 
-    exc = run(main())
+    run(main())
 
-    assert exc.status_code == 503
-    assert exc.detail == "Synthesis queue is full. Retry after a moment. timeout=0.1s"
     assert run_batch.batches == [["a"]]
 
 
