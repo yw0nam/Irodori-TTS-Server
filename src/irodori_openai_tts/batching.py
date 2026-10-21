@@ -5,6 +5,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from fastapi import HTTPException
+
 from irodori_tts.inference_runtime import (
     SamplingRequest,
     SamplingResult,
@@ -20,6 +22,7 @@ class _Item:
     request: SamplingRequest
     key: tuple | None
     arrived_at: float
+    started: asyncio.Event = field(default_factory=asyncio.Event)
     future: asyncio.Future = field(
         default_factory=lambda: asyncio.get_running_loop().create_future()
     )
@@ -51,6 +54,23 @@ class SynthesisBatcher:
         self._arrived.set()
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work())
+        try:
+            await asyncio.wait_for(item.started.wait(), self._queue_timeout)
+        except asyncio.TimeoutError as exc:
+            if item in self._pending:
+                self._pending.remove(item)
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Synthesis queue is full. Retry after a moment. "
+                        f"timeout={self._queue_timeout:.1f}s"
+                    ),
+                ) from exc
+        except asyncio.CancelledError:
+            if item in self._pending:
+                self._pending.remove(item)
+            item.future.cancel()
+            raise
         return await item.future
 
     async def _work(self) -> None:
@@ -60,7 +80,9 @@ class SynthesisBatcher:
                 batch = await self._next_batch()
                 for item in batch:
                     self._pending.remove(item)
-                await self._run(batch)
+                    item.started.set()
+                if batch:
+                    await self._run(batch)
             except Exception as exc:
                 for item in batch:
                     if not item.future.done():
@@ -86,7 +108,7 @@ class SynthesisBatcher:
 
     async def _next_batch(self) -> list[_Item]:
         loop = asyncio.get_running_loop()
-        while True:
+        while self._pending:
             oldest = self._pending[0]
             batch = [oldest]
             if oldest.key is not None:
@@ -100,3 +122,4 @@ class SynthesisBatcher:
                 await asyncio.wait_for(self._arrived.wait(), remaining)
             except asyncio.TimeoutError:
                 pass
+        return []
