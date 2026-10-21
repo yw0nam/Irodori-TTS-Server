@@ -8,6 +8,10 @@ from irodori_tts.inference_runtime import SamplingRequest
 RUNTIME = object()
 
 
+class BadRequestError(Exception):
+    pass
+
+
 class FakeRunBatch:
     def __init__(self) -> None:
         self.batches: list[list[str]] = []
@@ -15,6 +19,8 @@ class FakeRunBatch:
     async def __call__(self, runtime, requests):
         assert runtime is RUNTIME
         self.batches.append([request.text for request in requests])
+        if any(request.text == "bad" for request in requests):
+            raise BadRequestError("bad request")
         return [f"result:{request.text}" for request in requests]
 
 
@@ -27,11 +33,18 @@ def make_batcher(run_batch, *, max_batch_size=8, wait_seconds=0.01, queue_timeou
     )
 
 
+def run(coro):
+    return asyncio.run(asyncio.wait_for(coro, timeout=5))
+
+
 def submit_all_concurrently(batcher, requests):
     async def main():
-        return await asyncio.gather(*(batcher.submit(RUNTIME, request) for request in requests))
+        return await asyncio.gather(
+            *(batcher.submit(RUNTIME, request) for request in requests),
+            return_exceptions=True,
+        )
 
-    return asyncio.run(main())
+    return run(main())
 
 
 def test_compatible_submits_share_one_batch_in_submit_order():
@@ -89,3 +102,18 @@ def test_request_without_compatibility_key_runs_alone():
     )
 
     assert run_batch.batches == [["a"], ["b"]]
+
+
+def test_failed_batch_reruns_each_request_alone():
+    run_batch = FakeRunBatch()
+    batcher = make_batcher(run_batch)
+
+    results = submit_all_concurrently(
+        batcher,
+        [SamplingRequest(text="a"), SamplingRequest(text="bad"), SamplingRequest(text="c")],
+    )
+
+    assert run_batch.batches == [["a", "bad", "c"], ["a"], ["bad"], ["c"]]
+    assert results[0] == "result:a"
+    assert isinstance(results[1], BadRequestError)
+    assert results[2] == "result:c"
