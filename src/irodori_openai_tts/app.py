@@ -553,10 +553,15 @@ async def _acquire_synthesis_slot() -> asyncio.Semaphore:
         await asyncio.wait_for(semaphore.acquire(), timeout=timeout)
         return semaphore
     except asyncio.TimeoutError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Synthesis queue is full. Retry after a moment. timeout={timeout:.1f}s",
-        ) from exc
+        raise _synthesis_queue_full_error() from exc
+
+
+def _synthesis_queue_full_error() -> HTTPException:
+    timeout = max(0.0, float(settings.synthesis_wait_timeout))
+    return HTTPException(
+        status_code=503,
+        detail=f"Synthesis queue is full. Retry after a moment. timeout={timeout:.1f}s",
+    )
 
 
 def _release_synthesis_slot(semaphore: asyncio.Semaphore) -> None:
@@ -581,6 +586,15 @@ def _get_synthesis_batcher() -> SynthesisBatcher:
         )
         _synthesis_batcher_config = config
     return _synthesis_batcher
+
+
+async def _synthesize_batched(
+    runtime: Any, requests: list[SamplingRequest]
+) -> list[SamplingResult]:
+    try:
+        return await _get_synthesis_batcher().submit_all(runtime, requests)
+    except asyncio.TimeoutError as exc:
+        raise _synthesis_queue_full_error() from exc
 
 
 def _speech_chunks(payload: SpeechRequest, sampling_request: SamplingRequest) -> list[str]:
@@ -681,11 +695,10 @@ async def _synthesize_chunks(
     chunks: list[str],
 ) -> SamplingResult:
     if settings.max_batch_size > 1:
-        batcher = _get_synthesis_batcher()
         if len(chunks) == 1:
-            return await batcher.submit(runtime, sampling_request)
+            return (await _synthesize_batched(runtime, [sampling_request]))[0]
         chunk_requests = [replace(sampling_request, text=chunk) for chunk in chunks]
-        return _merge_chunk_results(await batcher.submit_all(runtime, chunk_requests))
+        return _merge_chunk_results(await _synthesize_batched(runtime, chunk_requests))
 
     if len(chunks) == 1:
         return await _run_blocking(
@@ -755,7 +768,7 @@ def _stream_speech_response(
                 )
                 chunk_request = replace(sampling_request, text=chunk)
                 if settings.max_batch_size > 1:
-                    result = await _get_synthesis_batcher().submit(runtime, chunk_request)
+                    result = (await _synthesize_batched(runtime, [chunk_request]))[0]
                 else:
                     synthesis_semaphore = await _acquire_synthesis_slot()
                     try:

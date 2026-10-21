@@ -5,8 +5,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import HTTPException
-
 from irodori_tts.inference_runtime import (
     SamplingRequest,
     SamplingResult,
@@ -79,16 +77,10 @@ class SynthesisBatcher:
             self._worker = asyncio.create_task(self._work())
         try:
             await asyncio.wait_for(item.started.wait(), queue_timeout)
-        except asyncio.TimeoutError as exc:
+        except asyncio.TimeoutError:
             if item in self._pending:
                 self._pending.remove(item)
-                raise HTTPException(
-                    status_code=503,
-                    detail=(
-                        "Synthesis queue is full. Retry after a moment. "
-                        f"timeout={queue_timeout:.1f}s"
-                    ),
-                ) from exc
+                raise
         except asyncio.CancelledError:
             if item in self._pending:
                 self._pending.remove(item)
