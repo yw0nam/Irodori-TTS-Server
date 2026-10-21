@@ -287,10 +287,8 @@ Request fields:
 | `irodori` | object | no | Irodori-specific inference options. |
 
 When `stream_format: "sse"` is set, the response is `text/event-stream`.
-The server synthesizes each text chunk sequentially and emits one `audio_chunk`
-event per chunk, followed by a final `done` event. With request batching on, a chunk
-can share a batch with other requests, but the chunks of one stream still run one
-after another:
+The server synthesizes each text chunk sequentially, also with request batching on,
+and emits one `audio_chunk` event per chunk, followed by a final `done` event:
 
 For consistent voice tone across chunks, specify a reference voice with `voice`,
 `irodori.ref_wav`, or `irodori.ref_wavs`. Without a reference, each chunk is synthesized
@@ -518,9 +516,9 @@ Set `irodori.first_sentence_chunk_min_chars` to use a smaller threshold only
 for the first sentence. Later sentences keep the normal `chunk_min_chars`
 threshold.
 
-Each chunk is synthesized sequentially, then concatenated into one audio response.
-With request batching on (see [Request Queue](#request-queue)), the chunks of one
-request are submitted together and can run in one batch.
+Chunks are synthesized, then concatenated into one audio response; with
+[request batching](#request-batching) on, the chunks of a non-stream request are
+submitted together.
 
 Per-request override:
 
@@ -562,7 +560,7 @@ IRODORI_MAX_BATCH_SIZE=4
 IRODORI_BATCH_WAIT_MS=20
 ```
 
-When `IRODORI_MAX_BATCH_SIZE` is above `1`, queued requests with compatible sampling options (same steps, CFG, LoRA adapter, speaker kind, and similar settings) run together, up to that many per batch. The server waits at most `IRODORI_BATCH_WAIT_MS` after the oldest queued request for more requests to join. One batch runs at a time, so `IRODORI_MAX_CONCURRENT_SYNTHESIS` is ignored in this mode. `IRODORI_SYNTHESIS_WAIT_TIMEOUT` still limits how long a request waits to start. If a batch fails, each request in it is retried alone so that one bad request does not fail the others.
+When `IRODORI_MAX_BATCH_SIZE` is above `1`, queued requests with compatible sampling options (same steps, CFG, LoRA adapter, speaker kind, and similar settings) run together, up to that many per batch. The server waits at most `IRODORI_BATCH_WAIT_MS` after the oldest queued request for more requests to join. One batch runs at a time, so `IRODORI_MAX_CONCURRENT_SYNTHESIS` is ignored in this mode. `IRODORI_SYNTHESIS_WAIT_TIMEOUT` applies until the first chunk of a request starts. If a batch fails, each request in it is retried alone so that one bad request does not fail the others.
 
 Batching needs the batch API of the [yw0nam/Irodori-TTS](https://github.com/yw0nam/Irodori-TTS) fork, which `pyproject.toml` pins.
 
