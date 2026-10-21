@@ -108,6 +108,8 @@ class SynthesisBatcher:
                 raise
             # Each item settles as soon as its own rerun ends, so callers can react early.
             for item in batch:
+                if item.future.done():
+                    continue
                 try:
                     await self._run([item])
                 except Exception as exc:
