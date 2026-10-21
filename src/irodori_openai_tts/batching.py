@@ -48,6 +48,29 @@ class SynthesisBatcher:
         self._worker: asyncio.Task | None = None
 
     async def submit(self, runtime: Any, request: SamplingRequest) -> SamplingResult:
+        return await self._submit(runtime, request, self._queue_timeout)
+
+    async def submit_all(
+        self, runtime: Any, requests: list[SamplingRequest]
+    ) -> list[SamplingResult]:
+        # Later chunks queue behind the first, so only the first waits with the queue timeout.
+        tasks = [
+            asyncio.create_task(
+                self._submit(runtime, request, self._queue_timeout if index == 0 else None)
+            )
+            for index, request in enumerate(requests)
+        ]
+        try:
+            return await asyncio.gather(*tasks)
+        finally:
+            # Queued siblings leave the queue; started ones finish and their results are dropped.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _submit(
+        self, runtime: Any, request: SamplingRequest, queue_timeout: float | None
+    ) -> SamplingResult:
         loop = asyncio.get_running_loop()
         item = _Item(runtime, request, batch_compatibility_key(request), loop.time())
         self._pending.append(item)
@@ -55,7 +78,7 @@ class SynthesisBatcher:
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work())
         try:
-            await asyncio.wait_for(item.started.wait(), self._queue_timeout)
+            await asyncio.wait_for(item.started.wait(), queue_timeout)
         except asyncio.TimeoutError as exc:
             if item in self._pending:
                 self._pending.remove(item)
@@ -63,7 +86,7 @@ class SynthesisBatcher:
                     status_code=503,
                     detail=(
                         "Synthesis queue is full. Retry after a moment. "
-                        f"timeout={self._queue_timeout:.1f}s"
+                        f"timeout={queue_timeout:.1f}s"
                     ),
                 ) from exc
         except asyncio.CancelledError:
@@ -72,18 +95,6 @@ class SynthesisBatcher:
             item.future.cancel()
             raise
         return await item.future
-
-    async def submit_all(
-        self, runtime: Any, requests: list[SamplingRequest]
-    ) -> list[SamplingResult]:
-        tasks = [asyncio.create_task(self.submit(runtime, request)) for request in requests]
-        try:
-            return await asyncio.gather(*tasks)
-        finally:
-            # Queued siblings leave the queue; started ones finish and their results are dropped.
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _work(self) -> None:
         while self._pending:
