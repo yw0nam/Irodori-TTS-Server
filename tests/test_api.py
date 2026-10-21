@@ -21,6 +21,11 @@ class FakeRuntime:
         self.requests = []
         self.texts: list[str] = []
         self.thread_ids: list[int] = []
+        self.batch_sizes: list[int] = []
+
+    def synthesize_batch(self, reqs, *, log_fn=None):
+        self.batch_sizes.append(len(reqs))
+        return [self.synthesize(r, log_fn=log_fn) for r in reqs]
 
     def synthesize(self, req, *, log_fn=None):
         self.requests.append(req)
@@ -102,6 +107,17 @@ def test_health_does_not_load_model(tmp_path, monkeypatch):
     assert body["voices"]["dir_exists"] is True
     assert body["defaults"]["chunk_min_chars"] == main.settings.default_chunk_min_chars
     assert body["defaults"]["first_sentence_chunk_min_chars"] is None
+
+
+def test_health_reports_batching_settings(monkeypatch):
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager())
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+    monkeypatch.setattr(main.settings, "batch_wait_ms", 15.0)
+
+    body = TestClient(main.app).get("/health").json()
+
+    assert body["runtime"]["max_batch_size"] == 4
+    assert body["runtime"]["batch_wait_ms"] == 15.0
 
 
 def test_models_lists_configured_model():
@@ -841,6 +857,28 @@ def test_speech_chunking_splits_only_after_min_chars(monkeypatch):
     assert len(runtime.texts) == 2
     assert runtime.texts[0].endswith("。")
     assert runtime.texts[1] == "最後です。"
+
+
+def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch):
+    runtime = FakeRuntime()
+    monkeypatch.setattr(main, "runtime_manager", FakeRuntimeManager(runtime=runtime))
+    monkeypatch.setattr(main.settings, "max_batch_size", 4)
+
+    response = TestClient(main.app).post(
+        "/v1/audio/speech",
+        json={
+            "model": "irodori-tts",
+            "input": "一つ目です。二つ目の文です。三つ目の長い文です。",
+            "voice": "none",
+            "response_format": "pcm",
+            "irodori": {"chunking_enabled": True, "chunk_min_chars": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    assert runtime.texts == ["一つ目です。", "二つ目の文です。", "三つ目の長い文です。"]
+    assert runtime.batch_sizes == [3]
+    assert len(response.content) == 2 * (6 + 8 + 10) * 10
 
 
 def test_speech_chunking_uses_first_sentence_min_chars_only_for_first_split(monkeypatch):
