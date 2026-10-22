@@ -6,6 +6,26 @@ This server targets [Irodori-TTS-v4-Small](https://huggingface.co/Aratako/Irodor
 
 Standard requests return one complete audio response. Chunk-level Server-Sent Events are also available for long text.
 
+## Fork changes
+
+This fork ([yw0nam/Irodori-TTS-Server](https://github.com/yw0nam/Irodori-TTS-Server)) adds concurrent-request throughput on top of upstream [Aratako/Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server). It depends on the fork [yw0nam/Irodori-TTS](https://github.com/yw0nam/Irodori-TTS), which adds the batch API and the runtime changes below. With the defaults (`IRODORI_MAX_BATCH_SIZE=1`, `IRODORI_SDPA_CUDNN` unset), requests run one at a time as upstream.
+
+| Area | Upstream | This fork | Setting |
+|---|---|---|---|
+| Concurrent requests | One synthesis at a time; other requests wait | Compatible requests and the chunks of long text share one batched synthesis call; a failed batch reruns each request alone | `IRODORI_MAX_BATCH_SIZE`, `IRODORI_BATCH_WAIT_MS` |
+| Reference voices | Reference audio is read and encoded on every request | The encoded reference latent is cached per set of reference files (32 entries; a changed file is encoded again) | always on |
+| Masked attention (CUDA) | cuDNN first; it builds a new execution plan for each new input length | cuDNN can be skipped | `IRODORI_SDPA_CUDNN=0` |
+
+Measured on k3s: one NVIDIA L40S (10 GB HAMi slice), Irodori-TTS-v4.1-Small in bf16, five production reference voices, Japanese text, 48 requests per concurrency level, 0 errors. Throughput in requests per second; p50 is the median request latency.
+
+| Concurrency | Upstream | + batching (8) and reference cache | + `IRODORI_SDPA_CUDNN=0` (mean of 3 runs) |
+|---|---|---|---|
+| 1 | 0.22 req/s, p50 4.6 s | 0.26 req/s, p50 3.8 s | 0.50 req/s, p50 1.5–2.0 s |
+| 8 | 0.25 req/s, p50 31.4 s | 0.79 req/s, p50 9.3 s | 1.57 req/s, p50 4.3–6.4 s |
+| 16 | 0.22 req/s, p50 67.4 s | 0.93 req/s, p50 15.7 s | 1.95 req/s, p50 6.7–8.1 s |
+
+Per-stage time from the pod logs: reference preparation fell from 1,084 ms to 29 ms per request; with cuDNN skipped, duration prediction fell from 316 ms to 114 ms per request and sampling from 3.8 s to 1.8 s per batch.
+
 ## Features
 
 - OpenAI-compatible `POST /v1/audio/speech`
