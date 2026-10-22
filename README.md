@@ -8,11 +8,11 @@ Standard requests return one complete audio response. Chunk-level Server-Sent Ev
 
 ## Fork changes
 
-This fork ([yw0nam/Irodori-TTS-Server](https://github.com/yw0nam/Irodori-TTS-Server)) adds concurrent-request throughput on top of upstream [Aratako/Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server). It depends on the fork [yw0nam/Irodori-TTS](https://github.com/yw0nam/Irodori-TTS), which adds the batch API and the runtime changes below. With the defaults (`IRODORI_MAX_BATCH_SIZE=1`, `IRODORI_SDPA_CUDNN` unset), requests run one at a time as upstream.
+This fork ([yw0nam/Irodori-TTS-Server](https://github.com/yw0nam/Irodori-TTS-Server)) adds concurrent-request throughput on top of upstream [Aratako/Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server). It depends on the fork [yw0nam/Irodori-TTS](https://github.com/yw0nam/Irodori-TTS), which adds the batch API and the runtime changes below. With the defaults (`IRODORI_MAX_BATCH_SIZE=1`, `IRODORI_SDPA_CUDNN` unset), requests are scheduled one at a time as upstream; the reference cache is always on.
 
 | Area | Upstream | This fork | Setting |
 |---|---|---|---|
-| Concurrent requests | One synthesis at a time; other requests wait | Compatible requests and the chunks of long text share one batched synthesis call; a failed batch reruns each request alone | `IRODORI_MAX_BATCH_SIZE`, `IRODORI_BATCH_WAIT_MS` |
+| Concurrent requests | One synthesis at a time; other requests wait | Compatible requests, and the chunks of a non-streaming long text, run together in batches of up to `IRODORI_MAX_BATCH_SIZE`; a failed batch reruns each request alone | `IRODORI_MAX_BATCH_SIZE`, `IRODORI_BATCH_WAIT_MS` |
 | Reference voices | Reference audio is read and encoded on every request | The encoded reference latent is cached per set of reference files (32 entries; a changed file is encoded again) | always on |
 | Masked attention (CUDA) | cuDNN first; it builds a new execution plan for each new input length | cuDNN can be skipped | `IRODORI_SDPA_CUDNN=0` |
 
