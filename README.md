@@ -592,6 +592,7 @@ All environment variables use the `IRODORI_` prefix. Request fields override the
 | `IRODORI_SYNTHESIS_WAIT_TIMEOUT` | `300` | Seconds to wait for a synthesis slot. |
 | `IRODORI_MAX_BATCH_SIZE` | `1` | Maximum requests or chunks per synthesis batch. `1` disables batching; above `1`, `IRODORI_MAX_CONCURRENT_SYNTHESIS` is ignored. |
 | `IRODORI_BATCH_WAIT_MS` | `20` | Milliseconds to wait for more compatible requests before a batch starts. |
+| `IRODORI_SDPA_CUDNN` | unset | `0` drops cuDNN from masked attention. cuDNN builds an execution plan for each new input length, so variable-length serving on CUDA runs faster with `0`. |
 | `IRODORI_EMPTY_CACHE_INTERVAL` | `10` | Release the accelerator allocator cache every N syntheses. A batch counts as one synthesis. `0` disables it, `1` releases after every synthesis. |
 | `IRODORI_VOICES_DIR` | `voices` | Directory scanned for reference voices. |
 | `IRODORI_DEFAULT_VOICE` | unset | Used when request omits `voice`. |
