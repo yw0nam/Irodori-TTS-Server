@@ -698,9 +698,10 @@ async def _synthesize_chunks(
         if len(chunks) == 1:
             return (await _synthesize_batched(runtime, [sampling_request]))[0]
         chunk_requests = [replace(sampling_request, text=chunk) for chunk in chunks]
-        results = await _synthesize_batched(runtime, chunk_requests)
-        for index, (chunk, result) in enumerate(zip(chunks, results, strict=True), start=1):
+        for index, chunk in enumerate(chunks, start=1):
             logger.info("speech chunk %d/%d started: chars=%d", index, len(chunks), len(chunk))
+        results = await _synthesize_batched(runtime, chunk_requests)
+        for index, result in enumerate(results, start=1):
             logger.info(
                 "speech chunk %d/%d completed: audio_seconds=%.2f",
                 index,

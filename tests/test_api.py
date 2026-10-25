@@ -917,10 +917,10 @@ def test_speech_batches_chunks_when_batching_is_enabled(monkeypatch, caplog):
     assert len(response.content) == 2 * (6 + 8 + 10) * 10
     assert [m for m in caplog.messages if m.startswith("speech chunk ")] == [
         "speech chunk 1/3 started: chars=6",
-        "speech chunk 1/3 completed: audio_seconds=0.06",
         "speech chunk 2/3 started: chars=8",
-        "speech chunk 2/3 completed: audio_seconds=0.08",
         "speech chunk 3/3 started: chars=10",
+        "speech chunk 1/3 completed: audio_seconds=0.06",
+        "speech chunk 2/3 completed: audio_seconds=0.08",
         "speech chunk 3/3 completed: audio_seconds=0.10",
     ]
 
