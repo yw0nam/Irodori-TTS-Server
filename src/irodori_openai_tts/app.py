@@ -700,8 +700,13 @@ async def _synthesize_chunks(
         chunk_requests = [replace(sampling_request, text=chunk) for chunk in chunks]
         results = await _synthesize_batched(runtime, chunk_requests)
         for index, (chunk, result) in enumerate(zip(chunks, results, strict=True), start=1):
-            _log_chunk_started(index, len(chunks), chunk)
-            _log_chunk_completed(index, len(chunks), result)
+            logger.info("speech chunk %d/%d started: chars=%d", index, len(chunks), len(chunk))
+            logger.info(
+                "speech chunk %d/%d completed: audio_seconds=%.2f",
+                index,
+                len(chunks),
+                _audio_duration_seconds(result.audio, result.sample_rate),
+            )
         return _merge_chunk_results(results)
 
     if len(chunks) == 1:
@@ -713,29 +718,21 @@ async def _synthesize_chunks(
 
     results: list[SamplingResult] = []
     for index, chunk in enumerate(chunks, start=1):
-        _log_chunk_started(index, len(chunks), chunk)
+        logger.info("speech chunk %d/%d started: chars=%d", index, len(chunks), len(chunk))
         chunk_request = replace(sampling_request, text=chunk)
         chunk_result = await _run_blocking(
             _synthesize_once,
             runtime,
             chunk_request,
         )
-        _log_chunk_completed(index, len(chunks), chunk_result)
+        logger.info(
+            "speech chunk %d/%d completed: audio_seconds=%.2f",
+            index,
+            len(chunks),
+            _audio_duration_seconds(chunk_result.audio, chunk_result.sample_rate),
+        )
         results.append(chunk_result)
     return _merge_chunk_results(results)
-
-
-def _log_chunk_started(index: int, total: int, chunk: str) -> None:
-    logger.info("speech chunk %d/%d started: chars=%d", index, total, len(chunk))
-
-
-def _log_chunk_completed(index: int, total: int, result: SamplingResult) -> None:
-    logger.info(
-        "speech chunk %d/%d completed: audio_seconds=%.2f",
-        index,
-        total,
-        _audio_duration_seconds(result.audio, result.sample_rate),
-    )
 
 
 def _merge_chunk_results(results: list[SamplingResult]) -> SamplingResult:
