@@ -14,7 +14,7 @@ from irodori_tts.inference_runtime import (
 RunBatch = Callable[[Any, list[SamplingRequest]], Awaitable[list[SamplingResult]]]
 
 
-class QueueTimeoutError(Exception):
+class QueueTimeoutError(RuntimeError):
     pass
 
 

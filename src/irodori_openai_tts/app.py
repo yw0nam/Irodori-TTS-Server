@@ -571,17 +571,15 @@ def _release_synthesis_slot(semaphore: asyncio.Semaphore) -> None:
 def _get_synthesis_batcher() -> SynthesisBatcher:
     global _synthesis_batcher, _synthesis_batcher_config
 
-    config = (
-        int(settings.max_batch_size),
-        float(settings.batch_wait_ms),
-        float(settings.synthesis_wait_timeout),
-        asyncio.get_running_loop(),
-    )
+    max_batch_size = int(settings.max_batch_size)
+    wait_ms = float(settings.batch_wait_ms)
+    queue_timeout = float(settings.synthesis_wait_timeout)
+    config = (max_batch_size, wait_ms, queue_timeout, asyncio.get_running_loop())
     if _synthesis_batcher is None or _synthesis_batcher_config != config:
         _synthesis_batcher = SynthesisBatcher(
-            max_batch_size=config[0],
-            wait_seconds=config[1] / 1000.0,
-            queue_timeout=config[2],
+            max_batch_size=max_batch_size,
+            wait_seconds=wait_ms / 1000.0,
+            queue_timeout=queue_timeout,
             run_batch=partial(_run_blocking, _synthesize_batch_once),
         )
         _synthesis_batcher_config = config
